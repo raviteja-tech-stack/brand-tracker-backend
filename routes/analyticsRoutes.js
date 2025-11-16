@@ -29,8 +29,11 @@ router.get("/:brandId/summary", async (req, res) => {
     .sort({ createdAt: -1 })
     .limit(10);
 
-  const topics = await Mention.aggregate([
-    { $match: { brandId: new mongoose.Types.ObjectId(brandId) } },
+  // ----------- TOPIC DISTRIBUTION -----------
+  const topicsAgg = await Mention.aggregate([
+    {
+      $match: { brandId: new mongoose.Types.ObjectId(brandId) },
+    },
     {
       $group: {
         _id: "$category",
@@ -39,13 +42,16 @@ router.get("/:brandId/summary", async (req, res) => {
     },
   ]);
 
-  // Trend: group by date
+  // Convert array → object for frontend
+  const topics = {};
+  topicsAgg.forEach((t) => {
+    topics[t._id || "other"] = t.count;
+  });
 
-  const trend = await Mention.aggregate([
+  // ----------- TREND (based on publishedAt) -----------
+  const trendAgg = await Mention.aggregate([
     {
-      $match: {
-        brandId: new mongoose.Types.ObjectId(brandId),
-      },
+      $match: { brandId: new mongoose.Types.ObjectId(brandId) },
     },
     {
       $group: {
@@ -55,9 +61,18 @@ router.get("/:brandId/summary", async (req, res) => {
         count: { $sum: 1 },
       },
     },
-    { $sort: { _id: 1 } },
+    {
+      $sort: { _id: 1 },
+    },
   ]);
 
+  // Convert to frontend format
+  const trend = trendAgg.map((item) => ({
+    date: item._id,
+    count: item.count,
+  }));
+
+  // Send final summary
   res.json({
     total,
     sentiment: { positive, negative, neutral },
